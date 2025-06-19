@@ -1,0 +1,19 @@
+.file-tree {
+  margin-left: -22px;
+}
+
+.file {
+  position: relative;
+  padding-left: 13px;
+}
+
+.icon {
+  position: relative;
+  top: 2px;
+  margin-right: 5.5px;
+}
+
+.is-dir > .icon {
+  top: 4px;
+  left: 1px;
+}
