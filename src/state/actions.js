@@ -51,7 +51,10 @@ export const actions = {
 
       dispatch({
         type: 'OPEN_PROJECT',
-        value: { projectRoot, tree: reifyExpression(parse(cstml, 'Node', `<dir> <//> </>`)) },
+        value: {
+          projectRoot,
+          tree: reifyExpression(parse(cstml, 'Node', `<File { isDir: true }> <//> </>`)),
+        },
       });
 
       let ents = await window.electronAPI.listDirectory(projectRoot);
@@ -71,6 +74,18 @@ export const actions = {
       let ents = await window.electronAPI.listDirectory(projectRoot + '/' + path.join('/'));
 
       let subtree = buildEnts(ents);
+
+      dispatch(actions.updateTree(Path.from(tree).get(path).replaceWith(subtree).atDepth(0).node));
+    };
+  },
+
+  collapseFolder: (path) => {
+    return async (dispatch, getState) => {
+      dispatch({ type: 'COLLAPSE_FOLDER', value: { path } });
+
+      let { projectRoot, tree } = getState();
+
+      let subtree = reifyExpression(parse(cstml, 'Node', [`<File { isDir: true }> <//> </>`]));
 
       dispatch(actions.updateTree(Path.from(tree).get(path).replaceWith(subtree).atDepth(0).node));
     };

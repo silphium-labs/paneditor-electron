@@ -35,6 +35,13 @@ export const reducer = (state = defaultState, action) => {
       });
     }
 
+    case 'COLLAPSE_FOLDER': {
+      return freeze({
+        ...state,
+        expandedPaths: state.expandedPaths.delete('/' + action.value.path.join('/')),
+      });
+    }
+
     case 'UPDATE_TREE': {
       return freeze({ ...state, tree: action.value.tree });
     }

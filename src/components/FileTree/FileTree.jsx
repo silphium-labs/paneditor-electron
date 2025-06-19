@@ -20,6 +20,8 @@ export const FileTree = ({ tree, depth = 0, pathPrefix = '' }) => {
             if (node.type) {
               let { isDir } = node.attributes;
 
+              let fullPath = pathPrefix + '/' + reference.name;
+
               let children = () => {
                 return isDir && store.expandedPaths.has(fullPath) ? (
                   <FileTree tree={node} depth={depth + 1} pathPrefix={fullPath} />
@@ -34,7 +36,6 @@ export const FileTree = ({ tree, depth = 0, pathPrefix = '' }) => {
                   <ChevronRight class="icon" size={18} />
                 );
               };
-              let fullPath = pathPrefix + '/' + reference.name;
 
               return (
                 <div
@@ -62,7 +63,11 @@ export const FileTree = ({ tree, depth = 0, pathPrefix = '' }) => {
 
                           path.reverse();
 
-                          await actions.expandFolder(path);
+                          if (store.expandedPaths.has('/' + path.join('/'))) {
+                            await actions.collapseFolder(path);
+                          } else {
+                            await actions.expandFolder(path);
+                          }
                         }
                   }
                 >
