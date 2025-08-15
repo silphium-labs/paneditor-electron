@@ -6,12 +6,13 @@
 }
 
 .environment > .editor {
-  flex-grow: 1;
+  flex-grow: 3;
 }
 
 .environment > .context-pane {
-  flex-basis: 400px;
+  flex-grow: 1.5;
   max-width: 30%;
+  min-width: 321px;
   background-color: rgb(30, 29, 29);
 }
 

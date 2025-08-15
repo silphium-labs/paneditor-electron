@@ -13,16 +13,9 @@ import {
 } from 'solid-js';
 import { streamParse } from 'bablr';
 import { spam } from '@bablr/boot';
-import * as language from '@bablr/language-en-cstml-json';
 import classNames from 'classnames';
 import { evaluateIO } from '@bablr/io-vm-web';
-import {
-  SelectionContext,
-  DocumentContext,
-  StoreContext,
-  EditContext,
-  nodeBindings,
-} from '../../state/solid.js';
+import { SelectionContext, DocumentContext, EditContext, nodeBindings } from '../../state/solid.js';
 import {
   buildStubNode,
   printReferenceTag,
@@ -789,7 +782,6 @@ function Editor() {
         setStore('doubleClickTimeout', null);
       }
     },
-
     onTouchEnd: (e) => {
       setStore(
         'touchTimeout',

@@ -1,8 +1,12 @@
-/* global process __dirname MAIN_WINDOW_VITE_DEV_SERVER_URL MAIN_WINDOW_VITE_NAME */
+/* global process __dirname MAIN_WINDOW_VITE_DEV_SERVER_URL MAIN_WINDOW_VITE_NAME Worker URL */
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import path from 'node:path';
 import started from 'electron-squirrel-startup';
 import { opendir } from 'node:fs/promises';
+
+const project = new Worker(new URL('./workers/project.js', import.meta.url), {
+  type: 'module',
+});
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (started) {
@@ -57,12 +61,20 @@ async function listDirectory(e, dir) {
   });
 }
 
+async function openProject(e, dir) {
+  project.postMessage({ type: 'open-project', value: { directory: dir } });
+}
+
+async function openFile(e, dir) {}
+
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
   ipcMain.handle('select-directory', selectDirectory);
   ipcMain.handle('list-directory', listDirectory);
+  ipcMain.handle('open-project', openProject);
+  ipcMain.handle('open-file', openFile);
 
   createWindow();
 
