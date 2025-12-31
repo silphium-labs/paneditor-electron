@@ -33,7 +33,7 @@ function HierarchyContext() {
   let isGap = () => paneRoot() && isGapNode(paneRoot());
 
   let flags = () => {
-    let { token, hasGap } = paneRoot().flags;
+    let { token, hasGap } = paneRoot().value.flags;
     return (
       <>
         <Show when={token}>*</Show>
@@ -43,10 +43,11 @@ function HierarchyContext() {
   };
 
   let selfClosing = () => {
-    return paneRoot().flags.token;
+    return paneRoot().value.flags.token;
   };
 
   let properties = () => {
+    throw new Error('not implemented');
     return Object.entries(paneRoot().properties).map(({ 0: key, 1: value }) => {
       if (Array.isArray(value)) {
         return (
@@ -58,7 +59,7 @@ function HierarchyContext() {
         let { reference, node } = value;
 
         let intrinsicFrag =
-          node.flags.token && !reference.flags.hasGap && !node.flags.hasGap
+          node.value.flags.token && !reference.flags.hasGap && !node.value.flags.hasGap
             ? ` ${printString(getCooked(node))}`
             : '';
 
@@ -81,8 +82,8 @@ function HierarchyContext() {
         ) : (
           <>
             &lt;
-            {printNodeFlags(node.flags)}
-            {node.type?.description}
+            {printNodeFlags(node.value.flags)}
+            {node.value.type?.description}
             {intrinsicFrag} /&gt;
           </>
         );
@@ -113,7 +114,7 @@ function HierarchyContext() {
               onClick={(e) => {
                 let htmlNode = nodeBindings.get(node);
 
-                let isSyntactic = !node.flags.hasGap && !reference.flags.hasGap;
+                let isSyntactic = !node.value.flags.hasGap && !reference.flags.hasGap;
 
                 setSelectedRange([htmlNode, htmlNode]);
                 setIsOuter(!isSyntactic);

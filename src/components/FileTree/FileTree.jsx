@@ -1,5 +1,4 @@
 import { useContext } from 'solid-js';
-import { Property } from '@bablr/agast-helpers/symbols';
 import { ChevronDown, ChevronRight, File } from 'lucide-solid';
 import { BTree } from './BTree.jsx';
 import { StoreContext } from '../../state/solid.js';
@@ -11,14 +10,14 @@ export const FileTree = ({ tree, depth = 0, pathPrefix = '' }) => {
   let { actions, store } = useContext(StoreContext);
 
   let btree = (
-    <BTree tree={tree.children}>
+    <BTree tree={tree.value.children}>
       {(child) => {
-        if (child.type === Property) {
+        if (child.type === OldProperty) {
           let { reference, node } = child.value;
 
           return () => {
             if (node.type) {
-              let { isDir } = node.attributes;
+              let { isDir } = node.value.attributes;
 
               let fullPath = pathPrefix + '/' + reference.name;
 
