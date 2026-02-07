@@ -12,12 +12,24 @@
     "publish": "electron-forge publish",
     "lint": "echo \"No linting configured\""
   },
-  "keywords": [],
-  "author": {
-    "name": "Conrad Buck",
-    "email": "conartist6@gmail.com"
+  "dependencies": {
+    "@bablr/agast-helpers": "0.10.10",
+    "@bablr/agast-vm-helpers": "0.10.6",
+    "@bablr/language-en-cstml-json": "0.5.5",
+    "@bablr/boot": "0.11.5",
+    "@bablr/helpers": "0.25.5",
+    "@bablr/io-vm-web": "0.5.0",
+    "@iter-tools/imm-stack": "1.1.0",
+    "@reduxjs/toolkit": "^2.8.2",
+    "bablr": "0.11.11",
+    "classnames": "2.5.1",
+    "electron-squirrel-startup": "^1.0.1",
+    "iter-tools-es": "7.5.4",
+    "immutable": "5.1.3",
+    "lucide-solid": "0.517.0",
+    "redux-logger": "3.0.6",
+    "solid-js": "^1.9.7"
   },
-  "license": "MIT",
   "devDependencies": {
     "@babel/core": "7.27.4",
     "@babel/plugin-syntax-jsx": "7.27.1",
@@ -39,21 +51,10 @@
     "vite": "^5.4.19",
     "vite-plugin-solid": "^2.11.6"
   },
-  "dependencies": {
-    "@bablr/agast-helpers": "0.8.0",
-    "@bablr/agast-vm-helpers": "0.8.0",
-    "@bablr/boot": "0.9.0",
-    "@bablr/helpers": "0.23.0",
-    "@bablr/io-vm-web": "0.4.0",
-    "@iter-tools/imm-stack": "1.1.0",
-    "@reduxjs/toolkit": "^2.8.2",
-    "bablr": "0.9.0",
-    "classnames": "2.5.1",
-    "electron-squirrel-startup": "^1.0.1",
-    "iter-tools-es": "7.5.4",
-    "immutable": "5.1.3",
-    "lucide-solid": "0.517.0",
-    "redux-logger": "3.0.6",
-    "solid-js": "^1.9.7"
-  }
+  "keywords": [],
+  "author": {
+    "name": "Conrad Buck",
+    "email": "conartist6@gmail.com"
+  },
+  "license": "MIT"
 }

@@ -5,6 +5,7 @@ import { StoreContext } from '../../state/solid.js';
 
 import './FileTree.css';
 import classNames from 'classnames';
+import { Property, TreeNode } from '@bablr/agast-helpers/symbols';
 
 export const FileTree = ({ tree, depth = 0, pathPrefix = '' }) => {
   let { actions, store } = useContext(StoreContext);
@@ -12,11 +13,11 @@ export const FileTree = ({ tree, depth = 0, pathPrefix = '' }) => {
   let btree = (
     <BTree tree={tree.value.children}>
       {(child) => {
-        if (child.type === OldProperty) {
+        if (child.type === Property) {
           let { reference, node } = child.value;
 
           return () => {
-            if (node.type) {
+            if (node.type === TreeNode) {
               let { isDir } = node.value.attributes;
 
               let fullPath = pathPrefix + '/' + reference.name;
@@ -62,10 +63,12 @@ export const FileTree = ({ tree, depth = 0, pathPrefix = '' }) => {
 
                           path.reverse();
 
-                          if (store.expandedPaths.has('/' + path.join('/'))) {
-                            await actions.collapseFolder(path);
-                          } else {
-                            await actions.expandFolder(path);
+                          if (isDir) {
+                            if (store.expandedPaths.has('/' + path.join('/'))) {
+                              await actions.collapseFolder(path);
+                            } else {
+                              await actions.expandFolder(path);
+                            }
                           }
                         }
                   }

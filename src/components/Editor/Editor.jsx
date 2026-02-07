@@ -24,20 +24,15 @@ import {
   nodeBindings,
 } from '../../state/solid.js';
 import {
-  buildStubNode,
   printReferenceTag,
   streamFromTree,
-  traverseProperties,
   buildGapTag,
   evaluateReturnSync,
-  createNode,
   buildLiteralTag,
   treeFromStreamSync as treeFromStream,
-  addProperty,
-  add,
 } from '@bablr/agast-helpers/tree';
 import { isGapNode, isNullNode, Path, TagPath } from '@bablr/agast-helpers/path';
-import * as sumtree from '@bablr/agast-helpers/children';
+import * as Tags from '@bablr/agast-helpers/tags';
 import {
   ReferenceTag,
   OpenNodeTag,
@@ -517,9 +512,9 @@ function Editor() {
             doSet(
               selected[0],
               treeFromStream([
-                sumtree.getAt(0, token.value.children),
+                Tags.getAt(0, token.value.tags),
                 buildLiteralTag(selected[0].innerText),
-                sumtree.getAt(-1, token.value.children),
+                Tags.getAt(-1, token.value.tags),
               ]),
             ),
           );
@@ -637,9 +632,9 @@ function Editor() {
           doSet(
             selected[0],
             treeFromStream([
-              sumtree.getAt(0, token.value.children),
+              Tags.getAt(0, token.value.tags),
               buildLiteralTag(selected[0].innerText),
-              sumtree.getAt(-1, token.value.children),
+              Tags.getAt(-1, token.value.tags),
             ]),
           );
 
@@ -753,9 +748,9 @@ function Editor() {
         doSet(
           selected[0],
           treeFromStream([
-            sumtree.getAt(0, token.value.children),
+            Tags.getAt(0, token.value.tags),
             buildLiteralTag(selected[0].innerText),
-            sumtree.getAt(-1, token.value.children),
+            Tags.getAt(-1, token.value.tags),
           ]),
         );
 
