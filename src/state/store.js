@@ -11,36 +11,40 @@ export const defaultState = freeze({
   mode: 'select',
   projectRoot: null,
   tree: null,
+  activeFile: null,
   expandedPaths: new Set(),
 });
 
 export const reducer = (state = defaultState, action) => {
   switch (action.type) {
-    case 'SELECT_NODE': {
+    case 'SELECT_NODE':
       return freeze({ ...state, paneFocus: 'hierarchy' });
-    }
 
-    case 'DROP': {
+    case 'DROP':
       return freeze({ ...state, dragSource: null, doubleClickTarget: null });
-    }
 
-    case 'OPEN_PROJECT': {
+    case 'OPEN_PROJECT':
       return freeze({ ...state, projectRoot: action.value.projectRoot, tree: action.value.tree });
-    }
 
-    case 'EXPAND_FOLDER': {
+    case 'PICK_FILE':
+      if (!state.projectRoot) throw new Error();
+
+      return freeze({
+        ...state,
+        activeFile: action.value.path,
+      });
+
+    case 'EXPAND_FOLDER':
       return freeze({
         ...state,
         expandedPaths: state.expandedPaths.add('/' + action.value.path.join('/')),
       });
-    }
 
-    case 'COLLAPSE_FOLDER': {
+    case 'COLLAPSE_FOLDER':
       return freeze({
         ...state,
         expandedPaths: state.expandedPaths.delete('/' + action.value.path.join('/')),
       });
-    }
 
     case 'UPDATE_TREE': {
       return freeze({ ...state, tree: action.value.tree });

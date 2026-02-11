@@ -1,870 +1,249 @@
-/* global window */
+/* global window Promise WebSocket Uint8Array Text */
 
-import emptyStack from '@iter-tools/imm-stack';
-import joinWith from 'iter-tools-es/methods/join-with';
-import find from 'iter-tools-es/methods/find';
-import {
-  createEffect,
-  createRoot,
-  useContext,
-  runWithOwner,
-  getOwner,
-  createSignal,
-} from 'solid-js';
-import { streamParse } from 'bablr';
+import { highlightCode } from 'bedazzlr';
+import { createSignal, useContext } from 'solid-js';
+
 import { spam } from '@bablr/boot';
-import * as language from '@bablr/language-en-cstml-json';
-import classNames from 'classnames';
-import { evaluateIO } from '@bablr/io-vm-web';
-import {
-  SelectionContext,
-  DocumentContext,
-  StoreContext,
-  EditContext,
-  nodeBindings,
-} from '../../state/solid.js';
-import {
-  printReferenceTag,
-  streamFromTree,
-  buildGapTag,
-  evaluateReturnSync,
-  buildLiteralTag,
-  treeFromStreamSync as treeFromStream,
-} from '@bablr/agast-helpers/tree';
-import { isGapNode, isNullNode, Path, TagPath } from '@bablr/agast-helpers/path';
-import * as Tags from '@bablr/agast-helpers/tags';
-import {
-  ReferenceTag,
-  OpenNodeTag,
-  CloseNodeTag,
-  LiteralTag,
-  GapTag,
-  ShiftTag,
-} from '@bablr/agast-helpers/symbols';
-import { debugEnhancers } from '@bablr/helpers/enhancers';
-import { sourceFromTokenStream } from '@bablr/helpers/source';
 
 import './Editor.css';
+import { StoreContext } from '../../state/solid';
+import { getStreamIterator, StreamIterable, wait } from '@bablr/agast-helpers/stream';
 
-let setNodeSignals = new WeakMap();
-
-// TODO this is a horrible horrible hack
-// we need to manage ownership better to keep the nodes alive only as long as they are really used
-let solidRoot;
-createRoot(() => {
-  solidRoot = getOwner();
-});
-
-function* ancestors(node) {
-  let parent = node;
-  while (parent && nodeBindings.has(parent)) {
-    yield parent;
-    parent = parent.parentNode;
-  }
-}
-
-const computeStartPos = (node, widths) => {};
+let inRange = (v, min, max) => v > min && v < max;
 
 let matcher = spam`<$__Expression />`;
 
-export const getWidth = (node) => {
-  if (isGapNode(node)) return 1;
-  if (isNullNode(node)) return 0;
+function* __codePointsFor(bytes) {
+  let iter = getStreamIterator(bytes);
+  let step = iter.next();
+  let partialValue = null;
 
-  return node.value.flags.token
-    ? [...sumtree.traverse(node.value.children)].reduce((w, tag) => {
-        switch (tag.type) {
-          case LiteralTag:
-            return w + tag.value.length;
-          case ReferenceTag:
-            throw new Error('unimplemented');
-          default:
-            return w;
-        }
-      }, 0)
-    : reduceNode(
-        node,
-        (sum, node) => {
-          return sum + getWidth(node);
-        },
-        0,
-      );
-};
+  for (;;) {
+    if (step instanceof Promise) {
+      step = yield wait(step);
+    }
 
-const reduceNode = (node, reducer, initialValue) => {
-  let acc = initialValue;
-  for (const childNode of traverseProperties(node.properties)) {
-    acc = reducer(acc, childNode);
+    if (step.done) break;
+
+    let { value } = step;
+
+    if (partialValue) {
+      if (inRange(value, 0xdc00, 0xdfff)) {
+        yield (0x10000 + (partialValue & (0x3ff << 10)) + value) & 0x3ff;
+      } else {
+        yield 0xfffd;
+      }
+
+      partialValue = null;
+    } else if (!inRange(value, 0xd800, 0xdfff)) {
+      yield value;
+    } else if (inRange(value, 0xdc00, 0xdfff)) {
+      yield 0xfffd;
+    } else if (inRange(value, 0xd800, 0xdbff)) {
+      partialValue = value;
+    }
+
+    step = iter.next();
   }
-  return acc;
+
+  if (partialValue) {
+    yield 0xfffd;
+  }
+}
+
+let codePointsFor = (bytes) => {
+  return new StreamIterable(__codePointsFor(bytes));
 };
 
-function Editor() {
-  let { selectionRoot, selectedRange, setSelectedRange } = useContext(SelectionContext);
-  let { document, setDocument } = useContext(DocumentContext);
-  let { widths, editStates, store, setStore } = useContext(EditContext);
+function* __decodeUTF8(bytes) {
+  let codePoints = codePointsFor(bytes);
+  let iter = getStreamIterator(codePoints);
+  let step = iter.next();
 
-  createEffect(() => {
-    if (!store.editing) {
-      window.getSelection().removeAllRanges();
+  for (;;) {
+    if (step instanceof Promise) {
+      step = yield wait(step);
+    }
+
+    if (step.done) break;
+
+    let cp = step.value;
+
+    if (cp <= 0xffff) {
+      yield String.fromCharCode(cp);
+    } else {
+      cp -= 0x10000;
+      yield String.fromCharCode((cp >> 10) + 0xd800, (cp & 0x3ff) + 0xdc00);
+    }
+
+    step = iter.next();
+  }
+}
+
+let decodeUTF8 = (bytes) => {
+  return new StreamIterable(__decodeUTF8(bytes));
+};
+
+let CircularBuffer = {
+  create(maxSize) {
+    return {
+      values: new Array(maxSize),
+      size: 0,
+      startIndex: 0,
+    };
+  },
+
+  getValuesIdx(idx, buffer) {
+    return (buffer.startIndex + idx) % buffer.values.length;
+  },
+
+  getAt(idx, buffer) {
+    return buffer.values[CircularBuffer.getValuesIdx(idx, buffer)];
+  },
+
+  push(buffer, value) {
+    let { size, values } = buffer;
+    if (size === values.length) throw new Error();
+
+    values[CircularBuffer.getValuesIdx(size, buffer)] = value;
+    buffer.size++;
+  },
+
+  shift(buffer) {
+    buffer.startIndex++;
+    buffer.size--;
+  },
+
+  empty(buffer) {
+    buffer.size = 0;
+  },
+
+  *traverse(buffer) {
+    let { values, size, startIndex } = buffer;
+    for (let i = 0; i < size; i++) {
+      yield values[(startIndex + i) % values.length];
+    }
+  },
+};
+
+let makeDeferred = () => {
+  let resolve, reject;
+  let promise = new Promise((rslv, rjct) => {
+    resolve = rslv;
+    reject = rjct;
+  });
+  return { resolve, reject, promise };
+};
+
+let socketStream = (url) => {
+  let socket = new WebSocket(url);
+  socket.binaryType = 'arraybuffer';
+  let done = Symbol();
+  let buffer = CircularBuffer.create(24);
+  let deferred = makeDeferred();
+  let paused = false;
+
+  socket.addEventListener('message', (event) => {
+    if (buffer.size >= 16 && !paused) {
+      socket.send(JSON.stringify({ type: 'pause', value: null }));
+    }
+    CircularBuffer.push(buffer, event.data);
+    if (deferred) {
+      deferred.resolve(event.data);
+      deferred = null;
     }
   });
 
-  let fragment = () => {
-    let stack = emptyStack.push({ type: null, node: null, fragment: null });
+  socket.addEventListener('close', () => {
+    CircularBuffer.push(buffer, done);
+  });
 
-    if (!document()) return null;
+  return new StreamIterable(
+    (function* __stream() {
+      yield wait(deferred.promise);
 
-    let tagPath = TagPath.fromNode(document().node, 0);
-
-    while (tagPath) {
-      let { tag, path } = tagPath;
-
-      if (tag.type === OpenNodeTag) {
-        let { path, node } = tagPath;
-        let { type, flags } = tag.value;
-
-        let existingHtmlNode = nodeBindings.get(node);
-
-        if (existingHtmlNode) {
-          stack.value.fragment = (
-            <>
-              {stack.value.fragment}
-              {existingHtmlNode}
-            </>
-          );
-          tagPath = TagPath.from(path, -1);
-        } else {
-          stack = stack.push({
-            type,
-            node,
-            fragment: <></>,
-          });
-        }
+      if (buffer.size < 8 && paused) {
+        socket.send(JSON.stringify({ type: 'resume', value: null }));
       }
 
-      if (tag.type === LiteralTag) {
-        let { value } = tag;
-        stack = stack.replace({
-          node: stack.value.node,
-          type: stack.value.type,
-          fragment: (
-            <>
-              {stack.value.fragment}
-              {[...joinWith(<br />, value.replace(/ /g, '\u00a0').split('\n'))]}
-            </>
+      for (let value of CircularBuffer.traverse(buffer)) {
+        if (value !== done) {
+          yield* new Uint8Array(value);
+        } else {
+          return;
+        }
+        CircularBuffer.shift(buffer);
+
+        if (!buffer.size) {
+          deferred = makeDeferred();
+
+          yield wait(deferred.promise);
+        } else {
+          // give the buffer a chance to fill up
+          yield wait(Promise.resolve());
+        }
+      }
+    })(),
+  );
+};
+
+function Editor() {
+  let { store } = useContext(StoreContext);
+
+  let stream = () =>
+    store.activeFile
+      ? decodeUTF8(
+          socketStream(
+            `ws://localhost:8084/files?path=${encodeURIComponent(`${store.projectRoot}/${store.activeFile.join('/')}`)}`,
           ),
-        });
-      }
+        )
+      : null;
 
-      if (tag.type === GapTag) {
-        let { node: ownNode, referenceTag } = path;
+  let { 0: error, 1: setError } = createSignal();
 
-        // prettier-ignore
-        let span = runWithOwner(solidRoot, () => {
-          return (
-            <span
-              class={classNames({ node: true, gap: true, selected: selectionRoot() === ownNode })}
-              data-path={printReferenceTag(referenceTag).slice(0, -1)}
-            >&nbsp;&nbsp;</span>
-          );
-        });
+  let buffer = () => {
+    let buffer = <div class="buffer" />;
+    buffer.innerHTML = '';
 
-        nodeBindings.set(ownNode, span);
-        nodeBindings.set(span, ownNode);
-        widths.set(ownNode, 1);
-
-        stack.value.fragment = (
-          <>
-            {stack.value.fragment}
-            {span}
-          </>
-        );
-      }
-
-      if (tag.type === CloseNodeTag) {
-        let doneFrame = stack.value;
-        stack = stack.pop();
-
-        let fragment;
-
-        if (path.depth) {
-          let { referenceTag } = path;
-
-          let { 0: node, 1: setNode } = createSignal(doneFrame.node);
-
-          let span = runWithOwner(solidRoot, () => {
-            let referenceAttributes = {
-              'data-type': node()?.type.description,
-              'data-path': printReferenceTag(referenceTag).slice(0, -1),
-            };
-
-            let selected = () => {
-              return selectionRoot() === node();
-            };
-
-            let highlighted = () => {
-              return (
-                !selected() &&
-                selectedRange()[0] === selectedRange()[1] &&
-                nodeBindings.get(selectedRange()[0]) === node()
-              );
-            };
-
-            let contentEditable = () =>
-              selected() && store.editing && node().value.flags.token
-                ? { contenteditable: true }
-                : {};
-
-            let draggable = () =>
-              !store.editing && selected() && store.selectionState === 'selected'
-                ? { draggable: true }
-                : {};
-
-            let dragging = () => selected() && !!store.dragSource;
-
-            return (
-              <span
-                {...referenceAttributes}
-                {...contentEditable()}
-                {...draggable()}
-                class={classNames({
-                  node: true,
-                  escape: referenceTag.value.type === '@',
-                  token: node().value.flags.token,
-                  trivia: referenceTag.value.type === '#',
-                  hasGap: node().value.flags.hasGap,
-                  selected: selected(),
-                  highlighted: highlighted(),
-                  dragging: dragging(),
-                })}
-              >
-                {doneFrame.fragment}
-              </span>
-            );
-          });
-
-          nodeBindings.set(doneFrame.node, span);
-          nodeBindings.set(span, doneFrame.node);
-          setNodeSignals.set(span, setNode);
-          widths.set(doneFrame.node, getWidth(doneFrame.node));
-
-          fragment = span;
-        } else {
-          ({ fragment } = doneFrame);
-
-          // capture the return value (an empty stack doesn't hold any data)
-        }
-
-        stack.value.fragment = (
-          <>
-            {stack.value.fragment}
-            {fragment}
-          </>
-        );
-      }
-
-      tagPath = tagPath.nextUnshifted;
+    if (!stream()) {
+      return <></>;
     }
 
-    return stack.value.fragment;
-  };
+    let iter = getStreamIterator(stream());
 
-  const doMove = (sourceHtmlNode, destHtmlNode) => {
-    let newValue = nodeBindings.get(sourceHtmlNode);
-    let changedNode = nodeBindings.get(destHtmlNode);
-    let expressions = [];
+    (async () => {
+      let step = iter.next();
 
-    let destAncestors = [...ancestors(destHtmlNode)].reverse();
-    let sourceAncestors = [...ancestors(sourceHtmlNode)].reverse();
+      let str = '';
+      while (true) {
+        if (step instanceof Promise) {
+          buffer.appendChild(new Text(str));
 
-    let tagPath = TagPath.fromNode(nodeBindings.get(destAncestors[0]), 0);
-    let diffPath = Path.from(createNode());
-    let rootDiffPath = diffPath;
-
-    while (tagPath) {
-      let { tag, path } = tagPath;
-      let { depth } = path;
-      let deeperSourceNode = nodeBindings.get(sourceAncestors[depth + 1]);
-      let deeperDestNode = nodeBindings.get(destAncestors[depth + 1]);
-
-      if (tag.type === GapTag && !isGapNode(path.node)) {
-        let referenceTag = tagPath.previousSibling.tag;
-
-        if (referenceTag.type === ShiftTag) {
-          throw new Error('umimplemented');
+          step = await step;
+          str = '';
+        }
+        if (step.done) {
+          buffer.appendChild(new Text(str));
+          break;
         }
 
-        let childNode = tagPath.inner;
-        let childHtmlNode = nodeBindings.get(childNode);
+        let chr = step.value;
 
-        if (childNode === changedNode) {
-          // dest
-          add(diffPath.node, referenceTag, buildStubNode(buildGapTag()));
-
-          expressions.unshift(newValue);
-        } else if (childNode === newValue) {
-          // source
-          let newStub = buildStubNode(buildGapTag());
-
-          add(diffPath.node, referenceTag, buildStubNode(buildGapTag()));
-          expressions.unshift(newStub);
-        } else if (childNode === deeperDestNode || childNode === deeperSourceNode) {
-          let newNode = createNode();
-          add(diffPath.node, referenceTag, newNode);
-
-          diffPath = diffPath.push(newNode, sumtree.getSize(diffPath.node.value.children) - 2);
-          tagPath = TagPath.from(tagPath.inner, 0);
-          continue;
-        } else {
-          let htmlNode = nodeBindings.get(childNode);
-
-          if (htmlNode?.dataset.path.endsWith('$')) {
-            add(diffPath.node, referenceTag, buildStubNode(buildGapTag()));
-            expressions.unshift(childNode);
-          } else {
-            add(diffPath.node, referenceTag, childNode);
-          }
-        }
-      } else if (tag.type === OldProperty) {
-        addProperty(diffPath.node, tag.value);
-      } else if (tag.type === CloseNodeTag) {
-        diffPath.node.value.children = sumtree.push(diffPath.node.value.children, tag);
-      } else if (tag.type === OpenNodeTag) {
-        diffPath.node.value.children = sumtree.push(diffPath.node.value.children, tag);
-        diffPath.node.value.flags = tag.value.flags;
-        diffPath.node.value.type = tag.value.type;
-        diffPath.node.value.language = tag.value.language;
-        diffPath.node.value.attributes = tag.value.attributes;
+        str += chr;
+        step = iter.next();
       }
-
-      if (!tagPath.nextSibling) {
-        tagPath = tagPath.nextUnshifted;
-        diffPath = diffPath.parent;
-      } else {
-        tagPath = tagPath.nextSibling;
-      }
-    }
-
-    let tree = evaluateReturnSync(
-      evaluateIO(() =>
-        streamParse(
-          language,
-          matcher,
-          sourceFromTokenStream(streamFromTree(rootDiffPath.node)),
-          {},
-          { expressions, emitEffects: true, enhancers: debugEnhancers },
-        ),
-      ),
-    );
-
-    return tree;
-  };
-
-  const doSet = (destHtmlNode, newValue) => {
-    let changedNode = nodeBindings.get(destHtmlNode);
-
-    let destAncestors = [...ancestors(destHtmlNode)].reverse();
-
-    let tagPath = TagPath.fromNode(nodeBindings.get(destAncestors[0]), 0);
-    let diffPath = Path.from(createNode());
-    let rootDiffPath = diffPath;
-
-    while (tagPath) {
-      let { tag, path } = tagPath;
-      let { depth } = path;
-
-      if (tag.type === GapTag) {
-        let deeperDestNode = nodeBindings.get(destAncestors[depth + 1]);
-        let referenceTag = tagPath.previousSibling.tag;
-
-        if (referenceTag.type === ShiftTag) {
-          throw new Error('umimplemented');
-        }
-
-        let childNode = tagPath.inner;
-
-        if (childNode === changedNode) {
-          add(diffPath.node, referenceTag, newValue);
-          nodeBindings.set(destHtmlNode, newValue);
-          nodeBindings.set(newValue, destHtmlNode);
-          setNodeSignals.get(destHtmlNode)(newValue);
-        } else if (childNode === deeperDestNode) {
-          let newNode = createNode();
-          add(diffPath.node, referenceTag, newNode);
-
-          diffPath = diffPath.push(newNode, sumtree.getSize(diffPath.node.value.children) - 2);
-          tagPath = TagPath.from(tagPath.inner, 0);
-          continue;
-        } else {
-          let htmlNode = nodeBindings.get(childNode);
-
-          if (htmlNode?.dataset.path.endsWith('$')) {
-            add(diffPath.node, referenceTag, childNode);
-          } else {
-            add(diffPath.node, referenceTag, childNode);
-          }
-        }
-      } else if (tag.type === OldProperty) {
-        addProperty(diffPath.node, tag.value);
-      } else if (tag.type === CloseNodeTag) {
-        diffPath.node.value.children = sumtree.push(diffPath.node.value.children, tag);
-      } else if (tag.type === OpenNodeTag) {
-        diffPath.node.value.children = sumtree.push(diffPath.node.value.children, tag);
-        diffPath.node.value.flags = tag.value.flags;
-        diffPath.node.value.type = tag.value.type;
-        diffPath.node.value.language = tag.value.language;
-        diffPath.node.value.attributes = tag.value.attributes;
-      }
-
-      if (!tagPath.nextSibling) {
-        let destNode = destAncestors[path.depth];
-        nodeBindings.set(diffPath.node, destNode);
-        nodeBindings.set(destNode, diffPath.node);
-        setNodeSignals.get(destNode)(diffPath.node);
-
-        tagPath = tagPath.nextUnshifted;
-        diffPath = diffPath.parent;
-      } else {
-        tagPath = tagPath.nextSibling;
-      }
-    }
-
-    return rootDiffPath.node;
-  };
-
-  const handlers = {
-    onMouseDown: (e) => {
-      let tokenNode = nodeBindings.get(e.target);
-
-      let oldDoubleClickTarget = store.doubleClickTarget;
-      let oldSelectedRange = selectedRange();
-      let isDoubleClick = oldDoubleClickTarget === e.target;
-
-      if (store.doubleClickTimeout) window.clearTimeout(store.doubleClickTimeout);
-
-      if (!isDoubleClick) {
-        setStore('doubleClickTarget', e.target);
-
-        setStore(
-          'doubleClickTimeout',
-          window.setTimeout(() => {
-            setStore('doubleClickTarget', null);
-            setStore('doubleClickTimeout', null);
-          }, 300),
-        );
-      } else {
-        setStore('doubleClickTarget', null);
-        setStore('doubleClickTimeout', null);
-      }
-
-      if (
-        store.selectionState === 'selected' &&
-        find((node) => node.draggable, ancestors(e.target)) &&
-        !isDoubleClick
-      ) {
-        let isSyntactic =
-          !nodeBindings.get(e.target).value.flags.hasGap && !e.target.dataset.path.endsWith('$');
-        if (isSyntactic && nodeBindings.get(e.target.parentNode) === selectionRoot()) {
-          if (tokenNode) {
-            setSelectedRange([e.target, e.target]);
-          } else {
-            setSelectedRange([null, null]);
-          }
-        } else {
-          let htmlNode = nodeBindings.get(selectionRoot());
-          setSelectedRange([htmlNode, htmlNode]);
-        }
-        return;
-      }
-
-      if (!store.touchTimeout && oldDoubleClickTarget && !store.editing) {
-        e.preventDefault();
-      }
-
-      let selection = window.getSelection();
-
-      let isEditModeClick =
-        store.editing && e.target.contentEditable && e.target === selectedRange()[0];
-
-      if (!isEditModeClick) {
-        if (!store.touchTimeout) {
-          if (tokenNode) {
-            setSelectedRange([e.target, e.target]);
-          } else {
-            setSelectedRange([null, null]);
-          }
-          setStore('selectionState', 'selecting');
-        }
-
-        if (store.editing && !store.touchTimeout) {
-          const selected = oldSelectedRange;
-
-          if (selected[0] !== selected[1]) throw new Error();
-
-          let token = nodeBindings.get(selected[0]);
-
-          if (!token.value.flags.token) throw new Error();
-
-          // this prevents you double clicking on a different node to enter its edit mode
-          // as you leave your edit mode, the target changes
-          setDocument(
-            doSet(
-              selected[0],
-              treeFromStream([
-                Tags.getAt(0, token.value.tags),
-                buildLiteralTag(selected[0].innerText),
-                Tags.getAt(-1, token.value.tags),
-              ]),
-            ),
-          );
-
-          setSelectedRange([...selectedRange()]);
-
-          setStore('editing', false);
-        }
-
-        if (isDoubleClick) {
-          let range = store.doubleClickRange;
-
-          if (!store.touchTimeout && tokenNode && !isGapNode(tokenNode)) {
-            setStore('editing', true);
-          }
-          setStore('doubleClickRange', null);
-
-          selection.removeAllRanges();
-          if (range) selection.addRange(range);
-
-          e.preventDefault();
-        } else {
-          window.setTimeout(() => {
-            if (store.doubleClickTarget) {
-              let range = selection.rangeCount ? selection.getRangeAt(0) : null;
-              selection.removeAllRanges();
-              if (range) range.collapse();
-              setStore('doubleClickRange', range);
-            }
-          });
-        }
-      }
-    },
-    onTouchStart: (e) => {
-      let tokenNode = nodeBindings.get(e.target);
-
-      setStore('touchTarget', e.target);
-      setStore(
-        'touchTimeout',
-        window.setTimeout(() => {
-          if (store.touchTimeout) window.clearTimeout(store.touchTimeout);
-          setStore('touchTimeout', null);
-        }, 300),
-      );
-
-      let oldDoubleTouchTarget = store.doubleTouchTarget;
-      let oldSelectedRange = selectedRange();
-
-      let isDoubleTouch = oldDoubleTouchTarget === e.target;
-
-      if (!isDoubleTouch) {
-        setStore('doubleTouchTarget', e.target);
-
-        setStore(
-          'doubleTouchTimeout',
-          window.setTimeout(() => {
-            if (store.doubleTouchTimeout) window.clearTimeout(store.doubleTouchTimeout);
-            setStore('doubleTouchTarget', null);
-            setStore('doubleTouchTimeout', null);
-          }, 300),
-        );
-      } else {
-        window.clearTimeout(store.doubleTouchTimeout);
-
-        setStore('doubleTouchTarget', null);
-        setStore('doubleTouchTimeout', null);
-      }
-
-      if (
-        store.selectionState === 'selected' &&
-        find((node) => node.draggable, ancestors(e.target)) &&
-        !isDoubleTouch
-      ) {
-        let isSyntactic =
-          !nodeBindings.get(e.target).value.flags.hasGap && !e.target.dataset.path.endsWith('$');
-        if (isSyntactic && nodeBindings.get(e.target.parentNode) === selectionRoot()) {
-          if (tokenNode) {
-            setSelectedRange([e.target, e.target]);
-          } else {
-            setSelectedRange([null, null]);
-          }
-        } else {
-          let htmlNode = nodeBindings.get(selectionRoot());
-          setSelectedRange([htmlNode, htmlNode]);
-        }
-        return;
-      }
-
-      // if ((oldDoubleTouchTarget || !tokenNode) && !store.editing) {
-      //   e.preventDefault();
-      // }
-
-      if (!store.editing) {
-        if (tokenNode) {
-          setSelectedRange([e.target, e.target]);
-        } else {
-          setSelectedRange([null, null]);
-        }
-        setStore('selectionState', 'selecting');
-      }
-
-      let isEditModeTouch =
-        store.editing && e.target.contentEditable && e.target === selectedRange()[0];
-
-      if (!isEditModeTouch) {
-        if (store.editing) {
-          const selected = oldSelectedRange;
-
-          if (selected[0] !== selected[1]) throw new Error();
-
-          let token = nodeBindings.get(selected[0]);
-
-          if (!token.value.flags.token) throw new Error();
-
-          doSet(
-            selected[0],
-            treeFromStream([
-              Tags.getAt(0, token.value.tags),
-              buildLiteralTag(selected[0].innerText),
-              Tags.getAt(-1, token.value.tags),
-            ]),
-          );
-
-          setSelectedRange([...selectedRange()]);
-
-          setStore('editing', false);
-        }
-
-        if (isDoubleTouch && tokenNode && !isGapNode(tokenNode)) {
-          setStore('editing', true);
-
-          // e.preventDefault();
-        }
-      }
-    },
-    onMouseOver: (e) => {
-      if (store.touchTimeout) {
-        e.preventDefault();
-        return;
-      }
-
-      if (store.selectionState === 'selecting') {
-        let tokenNode = nodeBindings.get(e.target);
-        let selected = selectedRange();
-
-        if (isGapNode(tokenNode)) {
-          let startTokenNode = selected[0];
-          setSelectedRange([startTokenNode, e.target]);
-        } else if (tokenNode) {
-          let range;
-
-          let startTokenNode = selected[0];
-
-          if (startTokenNode) {
-            if (computeStartPos(tokenNode, widths) < computeStartPos(startTokenNode, widths)) {
-              range = [startTokenNode, e.target];
-            } else {
-              range = [startTokenNode, e.target];
-            }
-          } else {
-            range = [e.target, e.target];
-          }
-
-          setSelectedRange(range);
-        } else {
-          setSelectedRange([selectedRange()[0], selectedRange()[0]]);
-        }
-      }
-    },
-    onTouchMove: (e) => {
-      setStore(
-        'touchTimeout',
-        window.setTimeout(() => {
-          if (store.touchTimeout) window.clearTimeout(store.touchTimeout);
-          setStore('touchTimeout', null);
-        }, 300),
-      );
-
-      if (e.touches.length === 1) {
-        let touch = e.touches[0];
-
-        let target = window.document.elementFromPoint(touch.clientX, touch.clientY);
-
-        if (target !== store.touchTarget) {
-          setStore('touchTarget', target);
-
-          if (store.selectionState === 'selecting') {
-            let tokenNode = nodeBindings.get(target);
-            let selected = selectedRange();
-
-            if (isGapNode(tokenNode)) {
-              let startTokenNode = selected[0];
-              setSelectedRange([startTokenNode, target]);
-            } else if (tokenNode) {
-              let range;
-
-              let startTokenNode = selected[0];
-
-              if (startTokenNode) {
-                if (computeStartPos(tokenNode, widths) < computeStartPos(startTokenNode, widths)) {
-                  range = [startTokenNode, target];
-                } else {
-                  range = [startTokenNode, target];
-                }
-              } else {
-                range = [target, target];
-              }
-
-              setSelectedRange(range);
-            } else {
-              setSelectedRange([selectedRange()[0], selectedRange()[0]]);
-            }
-          }
-        }
-      }
-    },
-    onKeyDown: (e) => {
-      if (e.key === 'Escape') {
-        setStore('editing', false);
-        e.preventDefault();
-      } else if (e.key === 'Enter') {
-        // TODO implement other ways (e.g. touch) to accept edits
-        const selected = selectedRange();
-
-        if (selected[0] !== selected[1]) throw new Error();
-
-        let token = nodeBindings.get(selected[0]);
-
-        if (!token.value.flags.token) throw new Error();
-
-        doSet(
-          selected[0],
-          treeFromStream([
-            Tags.getAt(0, token.value.tags),
-            buildLiteralTag(selected[0].innerText),
-            Tags.getAt(-1, token.value.tags),
-          ]),
-        );
-
-        setSelectedRange([...selectedRange()]);
-
-        setStore('editing', false);
-        e.preventDefault();
-      }
-    },
-    onMouseOut: (e) => {
-      if (store.touchTimeout) {
-        e.preventDefault();
-        return;
-      }
-      if (store.selectionState === 'selecting') {
-        let token = nodeBindings.get(e.target);
-        if (!token) {
-          setSelectedRange([selectedRange()[0], selectedRange()[0]]);
-        }
-      }
-    },
-    onMouseUp: (e) => {
-      if (store.touchTimeout) {
-        return;
-      }
-      setStore('selectionState', selectedRange() ? 'selected' : 'none');
-
-      if (e.target !== store.doubleClickTarget) {
-        window.clearTimeout(store.doubleClickTimeout);
-
-        setStore('doubleClickTarget', null);
-        setStore('doubleClickTimeout', null);
-      }
-    },
-
-    onTouchEnd: (e) => {
-      setStore(
-        'touchTimeout',
-        window.setTimeout(() => {
-          if (store.touchTimeout) window.clearTimeout(store.touchTimeout);
-          setStore('touchTimeout', null);
-        }, 300),
-      );
-
-      setStore('touchTarget', null);
-
-      setStore('selectionState', selectedRange() ? 'selected' : 'none');
-    },
-    onDragStart: (e) => {
-      let clone = e.target.cloneNode(true);
-      clone.id = 'dragShadow';
-      window.document.body.appendChild(clone);
-      e.dataTransfer.setDragImage(clone, 0, 0);
-      setStore('dragSource', e.target);
-    },
-    onDragOver: (e) => {
-      let tokenNode = nodeBindings.get(e.target);
-
-      if (isGapNode(tokenNode)) {
-        e.dataTransfer.dropEffect = 'move';
-        e.preventDefault(); // allow drop
-      }
-    },
-    onDragEnd: (e) => {
-      if (store.dragSource) {
-        setStore('dragSource', null);
-        setStore('doubleClickTarget', null);
-
-        window.document.getElementById('dragShadow').remove();
-      }
-    },
-    onDrop: (e) => {
-      let tokenNode = nodeBindings.get(e.target);
-
-      e.preventDefault();
-
-      if (isGapNode(tokenNode)) {
-        let { dragSource } = store;
-        let dragTarget = e.target;
-        let doc = doMove(dragSource, dragTarget);
-
-        dragSource.parentNode.removeChild(dragSource);
-
-        setStore('dragSource', null);
-        setStore('doubleClickTarget', null);
-
-        window.document.getElementById('dragShadow').remove();
-
-        e.target.replaceWith(dragSource);
-
-        setDocument(doc);
-      }
-    },
+    })().catch((e) => {
+      setError(e);
+    });
+
+    return buffer;
   };
 
   return (
     <>
-      <div
-        class="editor"
-        onMouseDown={handlers.onMouseDown}
-        onTouchStart={handlers.onTouchStart}
-        onMouseOver={handlers.onMouseOver}
-        onTouchMove={handlers.onTouchMove}
-        onKeyDown={handlers.onKeyDown}
-        onMouseOut={handlers.onMouseOut}
-        onTouchEnd={handlers.onTouchEnd}
-        onTouchCancel={handlers.onTouchEnd}
-        onMouseUp={handlers.onMouseUp}
-        onDragStart={handlers.onDragStart}
-        onDragOver={handlers.onDragOver}
-        onDragEnd={handlers.onDragEnd}
-        onDrop={handlers.onDrop}
-      >
-        {fragment()}
+      <pre class="editor">
+        {error()}
+        {buffer()}
         {/* <div class="paste-bin">
           <div
             class="coin add-snippet"
@@ -876,7 +255,7 @@ function Editor() {
           </div>
           <div class="coin top-snippet">sn</div>
         </div> */}
-      </div>
+      </pre>
     </>
   );
 }

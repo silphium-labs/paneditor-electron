@@ -40,12 +40,16 @@ export const actions = {
   drop: () => {},
 
   selectNode: () => {
-    return { type: 'SELECT_NODE', value: undefined };
+    return { type: 'SELECT_NODE', value: {} };
+  },
+
+  pickFile: (path) => {
+    return { type: 'PICK_FILE', value: { path } };
   },
 
   openProject: () => {
     return async (dispatch) => {
-      let projectRoot = await window.electronAPI.selectDirectory();
+      let projectRoot = await window.electron.selectDirectory();
 
       if (!projectRoot) return;
 
@@ -57,7 +61,8 @@ export const actions = {
         },
       });
 
-      let ents = await window.electronAPI.listDirectory(projectRoot);
+      // window.project.open(projectRoot);
+      let ents = await window.electron.listDirectory(projectRoot);
 
       let tree = buildEnts(ents);
 
@@ -71,7 +76,7 @@ export const actions = {
 
       let { projectRoot, tree } = getState();
 
-      let ents = await window.electronAPI.listDirectory(projectRoot + '/' + path.join('/'));
+      let ents = await window.electron.listDirectory(projectRoot + '/' + path.join('/'));
 
       let subtree = buildEnts(ents);
 

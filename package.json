@@ -22,13 +22,17 @@
     "@iter-tools/imm-stack": "1.1.0",
     "@reduxjs/toolkit": "^2.8.2",
     "bablr": "0.11.11",
+    "bedazzlr": "0.2.8",
+    "bufferutil": "4.1.0",
     "classnames": "2.5.1",
     "electron-squirrel-startup": "^1.0.1",
     "iter-tools-es": "7.5.4",
     "immutable": "5.1.3",
     "lucide-solid": "0.517.0",
     "redux-logger": "3.0.6",
-    "solid-js": "^1.9.7"
+    "solid-js": "^1.9.7",
+    "utf-8-validate": "6.0.6",
+    "ws": "^8.19.0"
   },
   "devDependencies": {
     "@babel/core": "7.27.4",

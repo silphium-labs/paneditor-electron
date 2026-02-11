@@ -1,12 +1,70 @@
-/* global process __dirname MAIN_WINDOW_VITE_DEV_SERVER_URL MAIN_WINDOW_VITE_NAME */
-import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+/* global process __dirname MAIN_WINDOW_VITE_DEV_SERVER_URL MAIN_WINDOW_VITE_NAME Promise URL */
+import { app, BrowserWindow, dialog, ipcMain as ipc } from 'electron';
 import path from 'node:path';
 import started from 'electron-squirrel-startup';
-import { opendir } from 'node:fs/promises';
+import { opendir, open } from 'node:fs/promises';
+import { WebSocketServer } from 'ws';
+
+const wss = new WebSocketServer({ port: 8084 });
+
+wss.on('connection', async function connection(socket, request) {
+  socket.binaryType = 'arraybuffer';
+
+  if (request.method !== 'GET') throw new Error();
+  let url = new URL(`http://localhost${request.url}`);
+
+  if (url.pathname !== '/files') throw new Error();
+
+  let fd = await open(url.searchParams.get('path'));
+
+  await pipeSocket(fd.createReadStream(), socket);
+});
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (started) {
   app.quit();
+}
+
+async function pipeSocket(stream, socket) {
+  let step;
+  let resume = null;
+
+  socket.on('message', function (data) {
+    if (typeof data !== 'string') throw new Error('notstring');
+    let msg = JSON.parse(data);
+    switch (msg.type) {
+      case 'pause':
+        step = new Promise((resolve) => {
+          let step_ = step;
+          resume = () => resolve(step_);
+        });
+        break;
+      case 'resume':
+        resume();
+        resume = null;
+        break;
+      default:
+        throw new Error('unknown type');
+    }
+  });
+
+  let iter = stream[Symbol.asyncIterator]();
+
+  try {
+    while (true) {
+      step = iter.next();
+      step = await step;
+
+      if (step.done) break;
+
+      let chunk = step.value;
+
+      socket.send(chunk.buffer);
+    }
+  } catch (e) {
+    iter.return();
+    throw e;
+  }
 }
 
 const createWindow = () => {
@@ -39,9 +97,9 @@ async function selectDirectory() {
   }
 }
 
-async function listDirectory(e, dir) {
+async function listDirectory(e, path) {
   let files = [];
-  for await (let file of await opendir(dir)) {
+  for await (let file of await opendir(path)) {
     files.push({
       name: file.name,
       isDir: await file.isDirectory(),
@@ -61,8 +119,8 @@ async function listDirectory(e, dir) {
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
-  ipcMain.handle('select-directory', selectDirectory);
-  ipcMain.handle('list-directory', listDirectory);
+  ipc.handle('select-directory', selectDirectory);
+  ipc.handle('list-directory', listDirectory);
 
   createWindow();
 
@@ -83,6 +141,3 @@ app.on('window-all-closed', () => {
     app.quit();
   }
 });
-
-// In this file you can include the rest of your app's specific main process
-// code. You can also put them in separate files and import them here.

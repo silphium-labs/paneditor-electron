@@ -29,7 +29,7 @@ export const FileTree = ({ tree, depth = 0, pathPrefix = '' }) => {
               };
               let icon = () => {
                 return !isDir ? (
-                  <File class="icon" size={16} />
+                  <File class="icon" size={16} style={{ 'padding-left': '2px' }} />
                 ) : store.expandedPaths.has(fullPath) ? (
                   <ChevronDown class="icon" size={18} />
                 ) : (
@@ -41,7 +41,7 @@ export const FileTree = ({ tree, depth = 0, pathPrefix = '' }) => {
                 <div
                   class={classNames({ file: true, 'is-dir': isDir })}
                   style={{
-                    'padding-left': `22px`,
+                    'padding-left': `18px`,
                   }}
                   data-name={reference.name}
                   onClick={
@@ -51,6 +51,9 @@ export const FileTree = ({ tree, depth = 0, pathPrefix = '' }) => {
                           let path = [];
 
                           let node = e.target;
+                          // The outer binding is outdated
+                          // I do not fully understand why
+                          let isDir = e.target.classList.contains('is-dir');
 
                           while (node && !node.dataset.name) {
                             node = node.parentElement;
@@ -69,6 +72,8 @@ export const FileTree = ({ tree, depth = 0, pathPrefix = '' }) => {
                             } else {
                               await actions.expandFolder(path);
                             }
+                          } else {
+                            actions.pickFile(path);
                           }
                         }
                   }
