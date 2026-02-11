@@ -30,8 +30,7 @@ async function pipeSocket(stream, socket) {
   let resume = null;
 
   socket.on('message', function (data) {
-    if (typeof data !== 'string') throw new Error('notstring');
-    let msg = JSON.parse(data);
+    let msg = JSON.parse(data.toString());
     switch (msg.type) {
       case 'pause':
         step = new Promise((resolve) => {
